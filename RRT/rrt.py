@@ -6,8 +6,12 @@ import numpy as np
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 
-from .vehicle_model import BicycleModel, CarTrailerModel
-from .collision import CollisionChecker, create_default_checker
+try:
+    from .vehicle_model import BicycleModel, CarTrailerModel
+    from .collision import CollisionChecker, create_default_checker
+except ImportError:
+    from vehicle_model import BicycleModel, CarTrailerModel
+    from collision import CollisionChecker, create_default_checker
 
 
 # RRT Parameters

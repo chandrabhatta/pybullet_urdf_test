@@ -5,7 +5,11 @@ Simple rectangular bounds checking against lane boundaries.
 
 import numpy as np
 from typing import List, Optional
-from .vehicle_model import BicycleModel, CarTrailerModel
+
+try:
+    from .vehicle_model import BicycleModel, CarTrailerModel
+except ImportError:
+    from vehicle_model import BicycleModel, CarTrailerModel
 
 
 # Lane boundaries (Dutch 2-lane highway)
