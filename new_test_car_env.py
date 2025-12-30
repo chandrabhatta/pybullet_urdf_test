@@ -1,4 +1,4 @@
-from car_env import SimpleCarTrailerEnv
+from car_env import SimpleCarEnv
 import numpy as np
 import time
 import pybullet as p
@@ -112,7 +112,7 @@ def mpc_control(state, obstacle_positions, dt):
 # MAIN LOOP
 # ==========================================================
 def main():
-    env = SimpleCarTrailerEnv(gui=True)
+    env = SimpleCarEnv(gui=True)
 
     obs, info = env.reset()
     print("Initial obs:", obs)
