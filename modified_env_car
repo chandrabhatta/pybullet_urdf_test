@@ -5,14 +5,24 @@ import pybullet_data
 from gymnasium import spaces
 
 
-class SimpleCarEnv(gym.Env):
+class CarTrailerDynamicEnv(gym.Env):
     metadata = {"render.modes": ["human"]}
 
-    def __init__(self, urdf_path="car/urdf/simple_car.urdf", dt=0.05, gui=True):
+    def __init__(
+        self,
+        ego_urdf="car/urdf/simple_car.urdf",
+        obstacle_urdf="car/urdf/obstacle_car.urdf",
+        dt=0.05,
+        gui=True,
+    ):
         super().__init__()
 
+        # =====================
+        # PARAMETERS
+        # =====================
         self.dt = dt
-        self.urdf_path = urdf_path
+        self.L = 2.5     # car wheelbase
+        self.Lt = 3.0    # trailer length
 
         # =====================
         # ACTION / OBSERVATION
@@ -20,13 +30,14 @@ class SimpleCarEnv(gym.Env):
         self.action_space = spaces.Box(
             low=np.array([-2.0, -0.6], dtype=np.float32),
             high=np.array([5.0, 0.6], dtype=np.float32),
-            dtype=np.float32
+            dtype=np.float32,
         )
 
+        # State: [x, y, theta, phi]
         self.observation_space = spaces.Box(
-            low=np.array([-1000.0, -1000.0, -np.pi], dtype=np.float32),
-            high=np.array([1000.0, 1000.0, np.pi], dtype=np.float32),
-            dtype=np.float32
+            low=np.array([-1000, -1000, -np.pi, -np.pi], dtype=np.float32),
+            high=np.array([1000, 1000, np.pi, np.pi], dtype=np.float32),
+            dtype=np.float32,
         )
 
         # =====================
@@ -39,9 +50,13 @@ class SimpleCarEnv(gym.Env):
         p.loadURDF("plane.urdf")
 
         # =====================
-        # LOAD CAR
+        # LOAD EGO CAR
         # =====================
-        self.car_id = p.loadURDF(self.urdf_path, [0, 0, 0.2], useFixedBase=False)
+        self.car_id = p.loadURDF(
+            ego_urdf,
+            basePosition=[0, 0, 0.2],
+            useFixedBase=False,
+        )
 
         self.steer_joints = []
         for ji in range(p.getNumJoints(self.car_id)):
@@ -57,14 +72,18 @@ class SimpleCarEnv(gym.Env):
         self.road_length = 200.0
 
         self.lane_centers = [
-            -self.lane_width / 2,  # left lane
-            +self.lane_width / 2,  # right lane
+            -self.lane_width / 2,
+            +self.lane_width / 2,
         ]
 
+        # =====================
+        # OBSTACLES (MOVING)
+        # =====================
         self.obstacle_ids = []
+        self.obstacle_states = []
 
         self._create_road_and_lanes()
-        self._create_fixed_obstacles()
+        self._create_obstacles()
 
         self.reset()
 
@@ -79,6 +98,7 @@ class SimpleCarEnv(gym.Env):
             halfExtents=[self.road_length / 2, road_width / 2, 0.01],
             rgbaColor=[0.15, 0.15, 0.15, 1],
         )
+
         p.createMultiBody(
             baseMass=0,
             baseVisualShapeIndex=road_visual,
@@ -102,51 +122,52 @@ class SimpleCarEnv(gym.Env):
             )
 
     # ==========================================================
-    # FIXED OBSTACLES 
+    # MOVING OBSTACLES
     # ==========================================================
-    def _create_fixed_obstacles(self):
-        # Obstacle 1: blocks starting lane
-        self._spawn_obstacle(x=10.0, y=self.lane_centers[1])
+    def _create_obstacles(self):
+        self._spawn_obstacle_car(10.0, self.lane_centers[1], speed=0.6)
+        self._spawn_obstacle_car(25.0, self.lane_centers[0], speed=0.5)
+        self._spawn_obstacle_car(35.0, self.lane_centers[1], speed=0.4)
+        self._spawn_obstacle_car(45.0, self.lane_centers[0], speed=0.6)
 
-        # Obstacle 2: blocks other lane later
-        self._spawn_obstacle(x=25.0, y=self.lane_centers[0])
+    def _spawn_obstacle_car(self, x, y, speed=0.5, yaw=0.0):
+        orn = p.getQuaternionFromEuler([0, 0, yaw])
 
-         # Obstacle 3:
-        self._spawn_obstacle(x=35.0, y=self.lane_centers[1])
-
-        # Obstacle 4:
-        self._spawn_obstacle(x=45.0, y=self.lane_centers[0])
-
-    def _spawn_obstacle(self, x, y):
-        collision = p.createCollisionShape(
-            p.GEOM_BOX, halfExtents=[0.6, 0.6, 0.6]
-        )
-
-        visual = p.createVisualShape(
-            p.GEOM_BOX,
-            halfExtents=[0.6, 0.6, 0.6],
-            rgbaColor=[1, 0, 0, 1],
-        )
-
-        obs_id = p.createMultiBody(
-            baseMass=0,
-            baseCollisionShapeIndex=collision,
-            baseVisualShapeIndex=visual,
-            basePosition=[x, y, 0.6],
+        obs_id = p.loadURDF(
+            self.obstacle_urdf,
+            basePosition=[x, y, 0.2],
+            baseOrientation=orn,
+            useFixedBase=True,
         )
 
         self.obstacle_ids.append(obs_id)
+        self.obstacle_states.append(
+            {"id": obs_id, "x": x, "y": y, "yaw": yaw, "v": speed}
+        )
+
+    def _update_obstacles(self):
+        for obs in self.obstacle_states:
+            obs["x"] += obs["v"] * self.dt * np.cos(obs["yaw"])
+            obs["y"] += obs["v"] * self.dt * np.sin(obs["yaw"])
+
+            orn = p.getQuaternionFromEuler([0, 0, obs["yaw"]])
+            p.resetBasePositionAndOrientation(
+                obs["id"], [obs["x"], obs["y"], 0.2], orn
+            )
 
     # ==========================================================
-    # RESET (NO OBSTACLE REGEN)
+    # RESET
     # ==========================================================
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
 
-        # Start in RIGHT lane
-        self.state = np.array([0.0, self.lane_centers[1], 0.0], dtype=np.float32)
+        # State: x, y, theta, phi
+        self.state = np.array(
+            [0.0, self.lane_centers[1], 0.0, 0.0],
+            dtype=np.float32,
+        )
 
-        orn = p.getQuaternionFromEuler([0, 0, 0])
+        orn = p.getQuaternionFromEuler([0, 0, self.state[2]])
         p.resetBasePositionAndOrientation(
             self.car_id, [self.state[0], self.state[1], 0.2], orn
         )
@@ -160,36 +181,42 @@ class SimpleCarEnv(gym.Env):
     # STEP
     # ==========================================================
     def step(self, action):
-        action = np.clip(action, self.action_space.low, self.action_space.high)
-        v, steer = float(action[0]), float(action[1])
+        v, steer = np.clip(action, self.action_space.low, self.action_space.high)
 
-        x, y, yaw = self.state
-        L = 2.5
+        x, y, theta, phi = self.state
 
-        x += v * np.cos(yaw) * self.dt
-        y += v * np.sin(yaw) * self.dt
-        yaw += (v * np.tan(steer) / L) * self.dt
+        # LaValle car-with-trailer model
+        x += v * np.cos(theta) * self.dt
+        y += v * np.sin(theta) * self.dt
+        theta += (v / self.L) * np.tan(steer) * self.dt
+        phi += (v / self.Lt) * np.sin(theta - phi) * self.dt
 
-        self.state = np.array([x, y, yaw], dtype=np.float32)
+        self.state = np.array([x, y, theta, phi], dtype=np.float32)
 
-        orn = p.getQuaternionFromEuler([0, 0, yaw])
+        orn = p.getQuaternionFromEuler([0, 0, theta])
         p.resetBasePositionAndOrientation(
             self.car_id, [x, y, 0.2], orn
         )
 
         for j in self.steer_joints:
             p.setJointMotorControl2(
-                self.car_id, j, p.POSITION_CONTROL,
-                targetPosition=steer, force=50
+                self.car_id,
+                j,
+                p.POSITION_CONTROL,
+                targetPosition=steer,
+                force=50,
             )
 
         p.stepSimulation()
 
-        collision = False
-        for c in p.getContactPoints(bodyA=self.car_id):
-            if c[2] in self.obstacle_ids:
-                collision = True
-                break
+        # Move traffic
+        self._update_obstacles()
+
+        # Collision check
+        collision = any(
+            c[2] in self.obstacle_ids
+            for c in p.getContactPoints(bodyA=self.car_id)
+        )
 
         reward = -10.0 if collision else 0.0
         terminated = collision
@@ -199,3 +226,4 @@ class SimpleCarEnv(gym.Env):
 
     def close(self):
         p.disconnect()
+
