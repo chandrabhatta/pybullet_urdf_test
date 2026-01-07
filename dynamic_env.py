@@ -52,6 +52,19 @@ class SimpleCarEnv(gym.Env):
             basePosition=[0, 0, 0.2],
             useFixedBase=False,
         )
+        # =====================
+# SET DYNAMICS (CRITICAL FOR TRAILER)
+# =====================
+        for j in range(p.getNumJoints(self.car_id)):
+            p.changeDynamics(
+                self.car_id,
+                j,
+                lateralFriction=2.0,
+                rollingFriction=0.02,
+                spinningFriction=0.02,
+                linearDamping=0.04,
+                angularDamping=0.04
+            )
 
         self.steer_joints = []
         for ji in range(p.getNumJoints(self.car_id)):
@@ -122,8 +135,8 @@ class SimpleCarEnv(gym.Env):
     def _create_obstacles(self):
         self._spawn_obstacle_car(10.0, self.lane_centers[1], speed=0.6)
         self._spawn_obstacle_car(25.0, self.lane_centers[0], speed=0.5)
-        self._spawn_obstacle_car(35.0, self.lane_centers[1], speed=0.4)
-        self._spawn_obstacle_car(45.0, self.lane_centers[0], speed=0.6)
+        self._spawn_obstacle_car(40.0, self.lane_centers[1], speed=0.4)
+        self._spawn_obstacle_car(55.0, self.lane_centers[0], speed=0.6)
 
     def _spawn_obstacle_car(self, x, y, speed=0.5, yaw=0.0):
         orn = p.getQuaternionFromEuler([0, 0, yaw])
