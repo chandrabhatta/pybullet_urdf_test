@@ -3,15 +3,18 @@ Kinodynamic RRT planner for car and car+trailer lane change.
 """
 
 import numpy as np
-from typing import List, Tuple, Optional
+import time
+from typing import List, Tuple, Optional, Dict, Any
 from dataclasses import dataclass
 
 try:
     from .vehicle_model import BicycleModel, CarTrailerModel
     from .collision import CollisionChecker, create_default_checker
+    from .metrics import pathLength
 except ImportError:
     from vehicle_model import BicycleModel, CarTrailerModel
     from collision import CollisionChecker, create_default_checker
+    from metrics import pathLength
 
 
 # RRT Parameters
@@ -237,7 +240,7 @@ class RRT:
         path.reverse()
         return path
 
-    def plan(self, max_iters: int = 1000, verbose: bool = True) -> Optional[List[np.ndarray]]:
+    def plan(self, max_iters: int = 1000, verbose: bool = True) -> Dict[str, Any]:
         """
         Run RRT planning.
 
@@ -246,8 +249,10 @@ class RRT:
             verbose: Print progress
 
         Returns:
-            Path from start to goal, or None if no path found
+            Dict with keys: 'path', 'success', 'time', 'iterations', 'nodes', 'path_length'
         """
+        start_time = time.time()
+
         for i in range(max_iters):
             # Sample random state
             target = self.sample_random()
@@ -258,19 +263,88 @@ class RRT:
             if new_node is not None:
                 # Check if we reached the goal
                 if self.is_goal_reached(new_node.state):
+                    elapsed = time.time() - start_time
+                    path = self.extract_path(new_node)
+
+                    # Compute path length using metrics
+                    positions = [[s[0], s[1]] for s in path]
+                    path_len = pathLength(positions)
+
+                    result = {
+                        'path': path,
+                        'success': True,
+                        'time': elapsed,
+                        'iterations': i + 1,
+                        'nodes': len(self.nodes),
+                        'path_length': path_len,
+                    }
+
                     if verbose:
                         print(f"Goal reached at iteration {i}!")
-                        print(f"Tree size: {len(self.nodes)} nodes")
-                    return self.extract_path(new_node)
+                        print(f"Time: {elapsed:.3f}s, Tree size: {len(self.nodes)} nodes")
+                        print(f"Path length: {path_len:.2f}m")
+
+                    return result
 
             if verbose and (i + 1) % 100 == 0:
                 print(f"Iteration {i+1}/{max_iters}, tree size: {len(self.nodes)}")
 
+        elapsed = time.time() - start_time
         if verbose:
             print(f"Failed to find path after {max_iters} iterations")
-            print(f"Tree size: {len(self.nodes)} nodes")
+            print(f"Time: {elapsed:.3f}s, Tree size: {len(self.nodes)} nodes")
 
-        return None
+        return {
+            'path': None,
+            'success': False,
+            'time': elapsed,
+            'iterations': max_iters,
+            'nodes': len(self.nodes),
+            'path_length': 0.0,
+        }
+
+    def run_benchmark(self, num_trials: int = 10, max_iters: int = 3000) -> Dict[str, Any]:
+        """
+        Run multiple trials and compute statistics.
+
+        Args:
+            num_trials: Number of trials to run
+            max_iters: Maximum iterations per trial
+
+        Returns:
+            Dict with success_rate, time_mean, time_std, length_mean, length_std
+        """
+        results = []
+        for trial in range(num_trials):
+            # Reset tree for each trial
+            self.nodes = [Node(state=self.start.copy())]
+            result = self.plan(max_iters=max_iters, verbose=False)
+            results.append(result)
+            status = 'Success' if result['success'] else 'Failed'
+            print(f"Trial {trial+1}/{num_trials}: {status}")
+
+        successes = [r for r in results if r['success']]
+        success_rate = len(successes) / num_trials * 100
+
+        if successes:
+            times = [r['time'] for r in successes]
+            lengths = [r['path_length'] for r in successes]
+
+            return {
+                'success_rate': success_rate,
+                'time_mean': np.mean(times),
+                'time_std': np.std(times),
+                'length_mean': np.mean(lengths),
+                'length_std': np.std(lengths),
+                'num_trials': num_trials,
+                'num_successes': len(successes),
+            }
+
+        return {
+            'success_rate': 0.0,
+            'num_trials': num_trials,
+            'num_successes': 0,
+        }
 
     def get_tree_edges(self) -> List[Tuple[np.ndarray, np.ndarray]]:
         """
