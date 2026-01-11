@@ -5,43 +5,32 @@ import pybullet as p
 
 
 # ==========================================================
-# MPC CONTROLLER (HIGHWAY + LEFT TURN)
+# HIGHWAY / LEFT-TURN MPC
 # ==========================================================
-def mpc_control(state, obstacle_positions, dt):
+def mpc_control(state, obstacle_positions, dt, left_turn=False):
     x, y, yaw = state
 
-    # =============================
-    # VEHICLE PARAMETERS
-    # =============================
     L = 2.5
     L_t = 3.0
     horizon = 12
 
-    # =============================
-    # ROAD GEOMETRY
-    # =============================
     lane_width = 3.5
     lane_centers = [-lane_width / 2, lane_width / 2]
 
-    LEFT_TURN_X = 87.0
-    SIDE_ROAD_LANE_Y = 8.0
-    TURN_YAW = np.pi / 2
-
-    TURN_ACTIVE = x > LEFT_TURN_X
-
-    # =============================
-    # CURRENT LANE (HIGHWAY)
-    # =============================
     current_lane = min(lane_centers, key=lambda ly: abs(y - ly))
-    target_lane = current_lane
 
-    # =============================
-    # OBSTACLE LOOKAHEAD (HIGHWAY ONLY)
-    # =============================
-    LOOKAHEAD_DIST = 10.0
-    min_dist = np.inf
+    # ======================================================
+    # TARGET SELECTION
+    # ======================================================
+    if left_turn:
+        target_lane = current_lane + 1.5      # push toward parking side (+Y)
+        target_speed = 1.2
+    else:
+        target_lane = current_lane
 
-    if not TURN_ACTIVE:
+        LOOKAHEAD_DIST = 10.0
+        min_dist = np.inf
+
         for ox, oy in obstacle_positions:
             if abs(oy - current_lane) < 0.7 and ox > x:
                 min_dist = min(min_dist, ox - x)
@@ -53,12 +42,6 @@ def mpc_control(state, obstacle_positions, dt):
                 else lane_centers[1]
             )
 
-    # =============================
-    # SPEED PROFILE
-    # =============================
-    if TURN_ACTIVE:
-        target_speed = 1.0
-    else:
         if min_dist < 3.0:
             target_speed = 0.8
         elif min_dist < 5.0:
@@ -66,60 +49,42 @@ def mpc_control(state, obstacle_positions, dt):
         else:
             target_speed = 3.0
 
-    # =============================
-    # MPC SEARCH
-    # =============================
-    steer_candidates = np.linspace(-0.35, 0.35, 11)
+    steer_candidates = np.linspace(-0.45, 0.45, 13)
 
     best_cost = np.inf
     best_steer = 0.0
 
+    # ======================================================
+    # MPC ROLLOUT
+    # ======================================================
     for steer in steer_candidates:
         px, py, pyaw = x, y, yaw
         yaw_trailer = yaw
-        py_trailer = py - L_t * np.sin(yaw_trailer)
+        py_trailer = y - L_t * np.sin(yaw_trailer)
 
         cost = 0.0
 
         for _ in range(horizon):
-            # ===== rollout vehicle =====
             px += target_speed * np.cos(pyaw) * dt
             py += target_speed * np.sin(pyaw) * dt
-            pyaw += (target_speed * np.tan(steer) / L) * dt
+            pyaw += target_speed * np.tan(steer) / L * dt
 
-            # ===== rollout trailer =====
             yaw_trailer += (
-                target_speed / L_t
-                * np.sin(pyaw - yaw_trailer)
-                * dt
+                target_speed / L_t * np.sin(pyaw - yaw_trailer) * dt
             )
             py_trailer = py - L_t * np.sin(yaw_trailer)
 
-            # =============================
-            # COST FUNCTION
-            # =============================
-            if px > LEFT_TURN_X:
-                # ===== LEFT TURN MODE =====
-                yaw_ref = TURN_YAW
+            lane_error = target_lane - py
 
-                cost += 25.0 * (py - SIDE_ROAD_LANE_Y) ** 2
-                cost += 50.0 * (py_trailer - SIDE_ROAD_LANE_Y) ** 2
-                cost += 12.0 * (pyaw - yaw_ref) ** 2
-                cost += 2.0 * steer ** 2
-
+            if left_turn:
+                yaw_ref = +0.4   # guaranteed left curvature
             else:
-                # ===== HIGHWAY MODE =====
-                lane_error = target_lane - py
                 yaw_ref = np.clip(0.6 * lane_error, -0.3, 0.3)
 
-                cost += 20.0 * (py - target_lane) ** 2
-                cost += 40.0 * (py_trailer - target_lane) ** 2
-                cost += 8.0 * (pyaw - yaw_ref) ** 2
-                cost += 2.0 * steer ** 2
-
-            # ===== hard bounds =====
-            if abs(py_trailer) > 2.5 * lane_width:
-                cost += 800.0
+            cost += 20.0 * lane_error**2
+            cost += 40.0 * (py_trailer - target_lane)**2
+            cost += 10.0 * (pyaw - yaw_ref)**2
+            cost += 2.0 * steer**2
 
         if cost < best_cost:
             best_cost = cost
@@ -129,20 +94,67 @@ def mpc_control(state, obstacle_positions, dt):
 
 
 # ==========================================================
-# MAIN LOOP
+# PARKING CONTROLLER
+# ==========================================================
+def parking_control(state):
+    x, y, yaw = state
+
+    parking_x = 100.0
+    parking_length = 15.0
+
+    # MUST MATCH ENV EXACTLY
+    parking_y = 6.0
+    final_yaw = 0.0
+
+    entry_x = parking_x - 3.0
+    entry_y = parking_y - 1.5
+
+    inside_slot = abs(x - parking_x) < parking_length / 2
+
+    if not inside_slot:
+        dx = entry_x - x
+        dy = entry_y - y
+
+        yaw_ref = np.arctan2(dy, dx)
+        yaw_err = np.arctan2(
+            np.sin(yaw_ref - yaw),
+            np.cos(yaw_ref - yaw)
+        )
+
+        steer = np.clip(1.3 * yaw_err, -0.45, 0.45)
+        v = 1.0
+
+    else:
+        yaw_err = np.arctan2(
+            np.sin(final_yaw - yaw),
+            np.cos(final_yaw - yaw)
+        )
+
+        steer = np.clip(2.2 * yaw_err, -0.4, 0.4)
+        v = 0.6
+
+        if abs(yaw_err) < 0.05 and abs(y - parking_y) < 0.25:
+            v = 0.0
+            steer = 0.0
+
+    return np.array([v, steer], dtype=np.float32)
+
+
+# ==========================================================
+# MAIN LOOP (FSM)
 # ==========================================================
 def main():
     env = SimpleCarEnv(gui=True)
     obs, _ = env.reset()
-
     car_id = env.car_id
 
-    # ======================================================
-    # PHYSICS INITIALIZATION
-    # ======================================================
-    for j in range(p.getNumJoints(car_id)):
-        name = p.getJointInfo(car_id, j)[1].decode()
+    mode = "HIGHWAY"
 
+    LEFT_TURN_START_X = 88.0
+    PARKING_TRIGGER_X = 94.5
+
+    # Physics
+    for j in range(p.getNumJoints(car_id)):
         p.changeDynamics(
             car_id,
             j,
@@ -151,42 +163,49 @@ def main():
             spinningFriction=0.02
         )
 
-        if "trailer_wheel" in name or "trailer_hinge" in name:
-            p.setJointMotorControl2(
-                car_id,
-                j,
-                p.VELOCITY_CONTROL,
-                targetVelocity=0,
-                force=0
-            )
-
-    print("✅ Physics initialized")
+    print("Highway → Left Turn → Parking FSM running")
 
     try:
-        for step in range(2000):
+        for step in range(3000):
+
             obstacle_positions = []
             for obs_id in env.obstacle_ids:
                 pos, _ = p.getBasePositionAndOrientation(obs_id)
                 obstacle_positions.append((pos[0], pos[1]))
 
-            action = mpc_control(obs, obstacle_positions, env.dt)
-            obs, reward, terminated, truncated, _ = env.step(action)
+            # ================= FSM =================
+            if mode == "HIGHWAY":
+                action = mpc_control(obs, obstacle_positions, env.dt)
 
-            if step % 25 == 0:
-                print(f"step {step}, obs={obs}, action={action}")
+                if obs[0] > LEFT_TURN_START_X:
+                    mode = "LEFT_TURN"
+                    print("↩️ LEFT TURN")
+
+            elif mode == "LEFT_TURN":
+                action = mpc_control(
+                    obs, obstacle_positions, env.dt, left_turn=True
+                )
+
+                if obs[0] > PARKING_TRIGGER_X:
+                    mode = "PARKING"
+                    print("PARKING")
+
+            else:
+                action = parking_control(obs)
+
+            obs, _, terminated, truncated, _ = env.step(action)
 
             car_pos, _ = p.getBasePositionAndOrientation(car_id)
             p.resetDebugVisualizerCamera(
                 cameraDistance=8.0,
-                cameraYaw=270.0,
-                cameraPitch=-20.0,
+                cameraYaw=270,
+                cameraPitch=-20,
                 cameraTargetPosition=car_pos
             )
 
             time.sleep(env.dt)
 
             if terminated or truncated:
-                print("Episode ended")
                 break
 
     finally:

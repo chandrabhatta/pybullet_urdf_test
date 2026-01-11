@@ -88,9 +88,7 @@ class SimpleCarEnv(gym.Env):
         self._create_grass()
         self._create_shoulders()
         self._create_trees()
-        self._create_side_road()
-        self._create_side_parking()
-
+        self._create_parking_space()
 
 
         # =====================
@@ -220,128 +218,72 @@ class SimpleCarEnv(gym.Env):
             self._spawn_tree(x, road_width / 2 + 6.0)
             self._spawn_tree(x, -(road_width / 2 + 6.0))
 
+    
         # ==========================================================
-    # SIDE ROAD (LEFT TURN)
+    # PARKING SPACE (AFTER LAST OBSTACLE)
     # ==========================================================
-    def _create_side_road(self):
-        self.side_road_x = 90.0
-        self.side_road_length = 40.0
-        self.side_road_width = 4.0
+    def _create_parking_space(self):
+        parking_x = 100.0
+        parking_length = 15.0
+        parking_width = 4.0
 
         road_width = self.num_lanes * self.lane_width
-        side_center_y = road_width / 2 + self.side_road_length / 2
-
-        # Side road asphalt
-        vis = p.createVisualShape(
-            p.GEOM_BOX,
-            halfExtents=[
-                self.side_road_width / 2,
-                self.side_road_length / 2,
-                0.02,
-            ],
-            rgbaColor=[0.15, 0.15, 0.15, 1],
-        )
-
-        col = p.createCollisionShape(
-            p.GEOM_BOX,
-            halfExtents=[
-                self.side_road_width / 2,
-                self.side_road_length / 2,
-                0.02,
-            ],
-        )
-
-        p.createMultiBody(
-            baseMass=0,
-            baseVisualShapeIndex=vis,
-            baseCollisionShapeIndex=col,
-            basePosition=[
-                self.side_road_x,
-                side_center_y,
-                0.02,
-            ],
-        )
-
-        # Center line
-        line_vis = p.createVisualShape(
-            p.GEOM_BOX,
-            halfExtents=[0.05, self.side_road_length / 2, 0.01],
-            rgbaColor=[1, 1, 1, 1],
-        )
-
-        p.createMultiBody(
-            baseMass=0,
-            baseVisualShapeIndex=line_vis,
-            basePosition=[
-                self.side_road_x,
-                side_center_y,
-                0.04,
-            ],
-        )
-    # ==========================================================
-    # PARKING AT END OF SIDE ROAD
-    # ==========================================================
-    def _create_side_parking(self):
-        parking_length = 10.0
-        parking_width = 4.5
-
-        road_width = self.num_lanes * self.lane_width
-
-        parking_x = self.side_road_x
-        parking_y = road_width / 2 + self.side_road_length + parking_length / 2
+        parking_y = road_width / 2 + parking_width / 2 + 0.5
 
         # Parking asphalt
+        col = p.createCollisionShape(
+            p.GEOM_BOX,
+            halfExtents=[parking_length / 2, parking_width / 2, 0.05],
+        )
+
         vis = p.createVisualShape(
             p.GEOM_BOX,
-            halfExtents=[parking_width / 2, parking_length / 2, 0.03],
+            halfExtents=[parking_length / 2, parking_width / 2, 0.05],
             rgbaColor=[0.2, 0.2, 0.2, 1],
         )
 
-        col = p.createCollisionShape(
-            p.GEOM_BOX,
-            halfExtents=[parking_width / 2, parking_length / 2, 0.03],
-        )
-
         p.createMultiBody(
             baseMass=0,
-            baseVisualShapeIndex=vis,
             baseCollisionShapeIndex=col,
-            basePosition=[parking_x, parking_y, 0.03],
+            baseVisualShapeIndex=vis,
+            basePosition=[parking_x, parking_y, 0.05],
         )
 
-        # Parking lines
-        line_thick = 0.05
-        line_h = 0.02
+        # Parking boundary lines
+        line_thickness = 0.05
+        line_height = 0.02
 
         def line(dx, dy):
-            return p.createVisualShape(
+            vis = p.createVisualShape(
                 p.GEOM_BOX,
-                halfExtents=[dx, dy, line_h],
+                halfExtents=[dx, dy, line_height],
                 rgbaColor=[1, 1, 1, 1],
             )
+            return vis
 
+        # Left & right
         for side in [-1, 1]:
             p.createMultiBody(
                 baseMass=0,
-                baseVisualShapeIndex=line(parking_width / 2, line_thick),
+                baseVisualShapeIndex=line(parking_length / 2, line_thickness),
                 basePosition=[
                     parking_x,
-                    parking_y + side * parking_length / 2,
-                    0.07,
+                    parking_y + side * parking_width / 2,
+                    0.11,
                 ],
             )
 
+        # Front & back
         for side in [-1, 1]:
             p.createMultiBody(
                 baseMass=0,
-                baseVisualShapeIndex=line(line_thick, parking_length / 2),
+                baseVisualShapeIndex=line(line_thickness, parking_width / 2),
                 basePosition=[
-                    parking_x + side * parking_width / 2,
+                    parking_x + side * parking_length / 2,
                     parking_y,
-                    0.07,
+                    0.11,
                 ],
             )
-
 
 
     # ==========================================================
