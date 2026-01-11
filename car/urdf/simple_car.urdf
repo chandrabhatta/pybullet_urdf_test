@@ -1,0 +1,135 @@
+<?xml version="1.0"?>
+<robot name="simple_car">
+
+  <!-- ==================== MATERIALS ==================== -->
+  <material name="car_blue"><color rgba="0.0 0.3 1.0 1.0"/></material>
+  <material name="trailer_red"><color rgba="0.0 1.0 0.0 1.0"/></material>
+  <material name="wheel_black"><color rgba="0.05 0.05 0.05 1.0"/></material>
+  <material name="hitch_gray"><color rgba="0.3 0.3 0.3 1.0"/></material>
+
+  <!-- ==================== CAR BODY ==================== -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0.2"/>
+      <geometry><box size="3.0 1.6 0.4"/></geometry>
+      <material name="car_blue"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.2"/>
+      <geometry><box size="3.0 1.6 0.4"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="100"/>
+      <origin xyz="0 0 0.2"/>
+      <inertia ixx="10" iyy="10" izz="10"/>
+    </inertial>
+  </link>
+
+  <!-- ==================== FRONT STEERED WHEELS ==================== -->
+  <link name="wheel_fl">
+    <visual><origin rpy="0 1.5708 0"/><geometry><cylinder radius="0.25" length="0.1"/></geometry><material name="wheel_black"/></visual>
+    <collision><origin rpy="0 1.5708 0"/><geometry><cylinder radius="0.25" length="0.1"/></geometry></collision>
+    <inertial><mass value="5"/><inertia ixx="0.05" iyy="0.05" izz="0.02"/></inertial>
+  </link>
+
+  <joint name="steer_fl" type="revolute">
+    <parent link="base_link"/>
+    <child link="wheel_fl"/>
+    <origin xyz="1.2 0.8 0.1"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.6" upper="0.6"/>
+  </joint>
+
+  <link name="wheel_fr">
+    <visual><origin rpy="0 1.5708 0"/><geometry><cylinder radius="0.25" length="0.1"/></geometry><material name="wheel_black"/></visual>
+    <collision><origin rpy="0 1.5708 0"/><geometry><cylinder radius="0.25" length="0.1"/></geometry></collision>
+    <inertial><mass value="5"/><inertia ixx="0.05" iyy="0.05" izz="0.02"/></inertial>
+  </link>
+
+  <joint name="steer_fr" type="revolute">
+    <parent link="base_link"/>
+    <child link="wheel_fr"/>
+    <origin xyz="1.2 -0.8 0.1"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.6" upper="0.6"/>
+  </joint>
+
+  <!-- ==================== HITCH ==================== -->
+  <link name="hitch_link">
+    <visual>
+      <geometry><cylinder radius="0.05" length="0.4"/></geometry>
+      <material name="hitch_gray"/>
+    </visual>
+    <collision>
+      <geometry><cylinder radius="0.05" length="0.4"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="5"/>
+      <inertia ixx="0.02" iyy="0.02" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <joint name="hitch_fixed" type="fixed">
+    <parent link="base_link"/>
+    <child link="hitch_link"/>
+    <origin xyz="-1.6 0 0.2"/>
+  </joint>
+
+  <!-- ==================== TRAILER BODY ==================== -->
+  <link name="trailer_base">
+    <visual>
+      <origin xyz="-1.0 0 0.15"/>
+      <geometry><box size="2.0 1.4 0.4"/></geometry>
+      <material name="trailer_red"/>
+    </visual>
+    <collision>
+      <origin xyz="-1.0 0 0.15"/>
+      <geometry><box size="2.0 1.4 0.4"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="80"/>
+      <origin xyz="-1.2 0 0.15"/>
+      <inertia ixx="6" iyy="6" izz="6"/>
+    </inertial>
+  </link>
+
+  <!-- REAL HITCH: YAW ONLY -->
+  <joint name="trailer_hinge" type="revolute">
+    <parent link="hitch_link"/>
+    <child link="trailer_base"/>
+    <origin xyz="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.2" upper="1.2"/>
+    <dynamics damping="6.0" friction="1.0"/>
+  </joint>
+
+  <!-- ==================== TRAILER WHEELS ==================== -->
+  <link name="trailer_wheel_l">
+    <visual><origin rpy="0 1.5708 0"/><geometry><cylinder radius="0.25" length="0.1"/></geometry><material name="wheel_black"/></visual>
+    <collision><origin rpy="0 1.5708 0"/><geometry><cylinder radius="0.25" length="0.1"/></geometry></collision>
+    <inertial><mass value="5"/><inertia ixx="0.05" iyy="0.05" izz="0.02"/></inertial>
+  </link>
+
+  <joint name="trailer_wheel_l_joint" type="revolute">
+    <parent link="trailer_base"/>
+    <child link="trailer_wheel_l"/>
+    <origin xyz="-1.8 0.7 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="0" velocity="100"/>
+  </joint>
+
+  <link name="trailer_wheel_r">
+    <visual><origin rpy="0 1.5708 0"/><geometry><cylinder radius="0.25" length="0.1"/></geometry><material name="wheel_black"/></visual>
+    <collision><origin rpy="0 1.5708 0"/><geometry><cylinder radius="0.25" length="0.1"/></geometry></collision>
+    <inertial><mass value="5"/><inertia ixx="0.05" iyy="0.05" izz="0.02"/></inertial>
+  </link>
+
+  <joint name="trailer_wheel_r_joint" type="revolute">
+    <parent link="trailer_base"/>
+    <child link="trailer_wheel_r"/>
+    <origin xyz="-1.8 -0.7 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="0" velocity="100"/>
+  </joint>
+
+</robot>
