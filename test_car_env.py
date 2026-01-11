@@ -23,7 +23,7 @@ def mpc_control(state, obstacle_positions, dt, left_turn=False):
     # TARGET SELECTION
     # ======================================================
     if left_turn:
-        target_lane = current_lane + 1.5      # push toward parking side (+Y)
+        target_lane = current_lane + 1.5
         target_speed = 1.2
     else:
         target_lane = current_lane
@@ -77,7 +77,7 @@ def mpc_control(state, obstacle_positions, dt, left_turn=False):
             lane_error = target_lane - py
 
             if left_turn:
-                yaw_ref = +0.4   # guaranteed left curvature
+                yaw_ref = np.clip(0.6 * lane_error, -0.5, 0.5)
             else:
                 yaw_ref = np.clip(0.6 * lane_error, -0.3, 0.3)
 
@@ -99,19 +99,21 @@ def mpc_control(state, obstacle_positions, dt, left_turn=False):
 def parking_control(state):
     x, y, yaw = state
 
+    if abs(yaw) > 0.4:
+        steer = np.clip(-1.4 * yaw, -0.45, 0.45)
+        return np.array([0.6, steer], dtype=np.float32)
+
     parking_x = 100.0
     parking_length = 15.0
-
-    # MUST MATCH ENV EXACTLY
     parking_y = 6.0
     final_yaw = 0.0
 
     entry_x = parking_x - 3.0
     entry_y = parking_y - 1.5
 
-    inside_slot = abs(x - parking_x) < parking_length / 2
+    depth_reached = x > parking_x + 1.5
 
-    if not inside_slot:
+    if not depth_reached:
         dx = entry_x - x
         dy = entry_y - y
 
@@ -121,8 +123,8 @@ def parking_control(state):
             np.cos(yaw_ref - yaw)
         )
 
-        steer = np.clip(1.3 * yaw_err, -0.45, 0.45)
-        v = 1.0
+        steer = np.clip(1.4 * yaw_err, -0.45, 0.45)
+        v = 0.9
 
     else:
         yaw_err = np.arctan2(
@@ -130,12 +132,19 @@ def parking_control(state):
             np.cos(final_yaw - yaw)
         )
 
-        steer = np.clip(2.2 * yaw_err, -0.4, 0.4)
-        v = 0.6
+        steer = np.clip(2.0 * yaw_err, -0.35, 0.35)
 
-        if abs(yaw_err) < 0.05 and abs(y - parking_y) < 0.25:
-            v = 0.0
-            steer = 0.0
+        if abs(yaw_err) > 0.2:
+            v = 0.2
+        else:
+            v = 0.4
+
+        if (
+            abs(yaw_err) < 0.05
+            and abs(y - parking_y) < 0.25
+            and x > parking_x + parking_length / 2 - 0.5
+        ):
+            return np.array([0.0, 0.0], dtype=np.float32)
 
     return np.array([v, steer], dtype=np.float32)
 
@@ -151,9 +160,8 @@ def main():
     mode = "HIGHWAY"
 
     LEFT_TURN_START_X = 88.0
-    PARKING_TRIGGER_X = 94.5
+    PARKING_TRIGGER_X = 92.5
 
-    # Physics
     for j in range(p.getNumJoints(car_id)):
         p.changeDynamics(
             car_id,
@@ -173,27 +181,56 @@ def main():
                 pos, _ = p.getBasePositionAndOrientation(obs_id)
                 obstacle_positions.append((pos[0], pos[1]))
 
-            # ================= FSM =================
+            if mode == "HIGHWAY" and obs[0] > LEFT_TURN_START_X:
+                mode = "LEFT_TURN"
+                print("↩️ LEFT TURN")
+
+            elif mode == "LEFT_TURN" and obs[0] > PARKING_TRIGGER_X:
+                mode = "PARKING"
+                print("PARKING")
+
             if mode == "HIGHWAY":
                 action = mpc_control(obs, obstacle_positions, env.dt)
 
-                if obs[0] > LEFT_TURN_START_X:
-                    mode = "LEFT_TURN"
-                    print("↩️ LEFT TURN")
-
             elif mode == "LEFT_TURN":
-                action = mpc_control(
-                    obs, obstacle_positions, env.dt, left_turn=True
-                )
+                action = mpc_control(obs, obstacle_positions, env.dt, left_turn=True)
 
-                if obs[0] > PARKING_TRIGGER_X:
-                    mode = "PARKING"
-                    print("PARKING")
+            elif mode == "PARKING":
+                x, y, yaw = obs
+                if abs(y - 6.0) < 0.25 and abs(yaw) < 0.06:
+                    print("✅ PARKED")
+                    mode = "PARKED"
+                    env.parked = True
+                    action = np.array([0.0, 0.0], dtype=np.float32)
+                else:
+                    action = parking_control(obs)
+
+            elif mode == "PARKED":
+                action = np.array([0.0, 0.0], dtype=np.float32)
 
             else:
-                action = parking_control(obs)
+                action = np.array([0.0, 0.0], dtype=np.float32)
 
             obs, _, terminated, truncated, _ = env.step(action)
+
+            if mode == "PARKING":
+                x, y, yaw = obs
+                if abs(y - 6.0) < 0.3 and abs(yaw) < 0.08:
+                    print("✅ PARKED")
+                    mode = "PARKED"
+                    env.parked = True
+                    p.resetBaseVelocity(car_id, [0, 0, 0], [0, 0, 0])
+
+            if mode == "PARKED":
+                p.resetBaseVelocity(car_id, [0, 0, 0], [0, 0, 0])
+                for j in range(p.getNumJoints(car_id)):
+                    p.setJointMotorControl2(
+                        car_id,
+                        j,
+                        p.VELOCITY_CONTROL,
+                        targetVelocity=0,
+                        force=0
+                    )
 
             car_pos, _ = p.getBasePositionAndOrientation(car_id)
             p.resetDebugVisualizerCamera(

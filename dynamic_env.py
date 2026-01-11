@@ -99,6 +99,8 @@ class SimpleCarEnv(gym.Env):
         self._create_obstacles()
 
         self.reset()
+        self.parked = False
+
 
     # ==========================================================
     # ROAD + LANE MARKINGS
@@ -319,6 +321,11 @@ class SimpleCarEnv(gym.Env):
         return self.state.copy(), {}
 
     def step(self, action):
+        if self.parked:
+        # Do not apply motors anymore
+            p.resetBaseVelocity(self.car_id, [0,0,0], [0,0,0])
+            obs = self._get_obs()
+            return obs, 0.0, False, False, {}
         v, steer = np.clip(action, self.action_space.low, self.action_space.high)
         x, y, yaw = self.state
         L = 2.5
