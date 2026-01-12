@@ -11,7 +11,7 @@ def mpc_control(state, obstacle_positions, dt):
     x, y, yaw = state
 
     # -----------------------------
-    # Frenet (correct for your env)
+    # Frenet
     # -----------------------------
     s = x
     d = y

@@ -54,7 +54,7 @@ class SimpleCarEnv(gym.Env):
         )
 
         # =====================
-        # DYNAMICS (TRAILER SAFE)
+        # DYNAMICS 
         # =====================
         for j in range(p.getNumJoints(self.car_id)):
             p.changeDynamics(
@@ -221,8 +221,8 @@ class SimpleCarEnv(gym.Env):
             self._spawn_tree(x, -(road_width / 2 + 6.0))
 
     
-        # ==========================================================
-    # PARKING SPACE (AFTER LAST OBSTACLE)
+    # ==========================================================
+    # PARKING SPACE 
     # ==========================================================
     def _create_parking_space(self):
         parking_x = 100.0
